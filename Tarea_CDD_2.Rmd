@@ -1,0 +1,176 @@
+---
+title: "Tarea Ciencia de los Datos 1"
+output: html_document
+date: "2023-09-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+readmissions <- read_csv("readmissions.csv")
+View(readmissions)
+```
+
+```{r}
+#Estandarización de la variable age
+
+data <- readmissions
+m <- mean(data$age)
+s <- sd(data$age)
+data$sd_age <- (data$age - m)/s
+```
+
+```{r}
+#Modelamiento
+
+modelo1 <- lm(data$readmission1m ~ data$sd_age, data = data)
+
+modelo2 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2, data = data)
+
+modelo3 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2 + data$sd_age^3, data = data)
+
+modelo4 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2 + data$sd_age^3 + data$sd_age^4, data = data)
+
+modelo5 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2 + data$sd_age^3 + data$sd_age^4 + data$sex + data$publicinsurance, data = data)
+
+modelo6 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2 + data$sd_age^3 + data$sd_age^4 + data$lengthstay + data$surgery, data = data)
+
+modelos <- list(modelo1, modelo2, modelo3, modelo4, modelo5, modelo6)
+
+rmse_resultados <- numeric(length(modelos))
+
+for (i in 1:length(modelos)) {
+  predicciones <- predict(modelos[[i]], data = data)
+  rmse <- sqrt(mean((data$readmission1m - predicciones)^2))
+  rmse_resultados[i] <- rmse
+}
+
+mejor_modelo <- which.min(rmse_resultados)
+
+cat("El modelo", mejor_modelo, "tiene el RMSE más bajo dentro de la muestra con un valor de:", rmse_resultados[mejor_modelo])
+```
+```{r}
+#Parte B
+
+# a) Creación de los 5 folds
+
+library(caret)
+
+num_folds <- 5
+set.seed(123)
+folds <- createFolds(data$readmission1m, k = num_folds, list = TRUE, returnTrain = FALSE)
+
+```
+
+```{r}
+# b) Excluyendo los datos del fold k, ajuste el modelo 1, luego use ese modelo para predecir y para observaciones en el fold k. Repita el paso anterior para los modelos 2-6.
+
+# Ciclo de validación cruzada
+for (k in 1:num_folds) {
+  # Excluir datos del fold k
+  datos_entrenamiento <- data[-folds[[k]], ]
+  datos_prueba <- data[folds[[k]], ]
+  
+  modelo11 <- lm(data$readmission1m ~ data$sd_age, data = datos_entrenamiento)
+
+  modelo22 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2, data = datos_entrenamiento)
+
+  modelo33 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2 + data$sd_age^3, data = datos_entrenamiento)
+
+  modelo44 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2 + data$sd_age^3 + data$sd_age^4, data = datos_entrenamiento)
+
+  modelo55 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2 + data$sd_age^3 + data$sd_age^4 + data$sex + data$publicinsurance, data = datos_entrenamiento)
+
+  modelo66 <- lm(data$readmission1m ~ data$sd_age + data$sd_age^2 + data$sd_age^3 + data$sd_age^4 + data$lengthstay + data$surgery, data = datos_entrenamiento)
+  
+  # Realizar predicciones con cada modelo
+  predicciones_modelo1 <- predict(modelo11, newdata = datos_prueba)
+  predicciones_modelo2 <- predict(modelo22, newdata = datos_prueba)
+  predicciones_modelo3 <- predict(modelo33, newdata = datos_prueba)
+  predicciones_modelo4 <- predict(modelo44, newdata = datos_prueba)
+  predicciones_modelo5 <- predict(modelo55, newdata = datos_prueba)
+  predicciones_modelo6 <- predict(modelo66, newdata = datos_prueba)
+  
+}
+```
+
+```{r}
+# c) Para cada fold, debe tener 6 probabilidades predichas de reingreso a los 30 días, en cada caso basadas en datos para los otros 4/5 de la muestra.
+
+# Crear listas para almacenar las probabilidades predichas para cada modelo
+probabilidades_predichas <- vector("list", length = 6)
+
+# Ciclo para cada modelo
+for (i in 1:6) {
+  probabilidades_fold <- numeric(0)  # Vector para almacenar probabilidades predichas en cada fold
+  
+  # Ciclo para cada fold
+  for (k in 1:num_folds) {
+    # Agregar las probabilidades predichas en el fold k al vector
+    predicciones <- switch(
+      i,
+      predicciones_modelo1,
+      predicciones_modelo2,
+      predicciones_modelo3,
+      predicciones_modelo4,
+      predicciones_modelo5,
+      predicciones_modelo6
+    )
+    
+    probabilidades_fold <- c(probabilidades_fold, predicciones[folds[[k]]])
+  }
+  
+  # Almacenar las probabilidades predichas para el modelo i
+  probabilidades_predichas[[i]] <- probabilidades_fold
+}
+```
+
+```{r}
+# d) Combine las predicciones para los 5 folds. Ahora, usando un criterio RMSE: ¿qué modelo tiene el mejor ajuste “fuera de la muestra”? Use este modelo para graficar la probabilidad de reingreso contra la edad de los pacientes.
+
+# Calcular el RMSE para cada modelo
+rmse_modelos <- numeric(6)
+
+for (i in 1:6) {
+  rmse_fold <- numeric(0)  # Vector para almacenar RMSE en cada fold
+  
+  for (k in 1:num_folds) {
+    # Calcular el RMSE en el fold k para el modelo i
+    rmse <- sqrt(mean((probabilidades_predichas[[i]][folds[[k]]] - data$readmission1m[folds[[k]]])^2))
+    rmse_fold <- c(rmse_fold, rmse)
+  }
+  
+  # Calcular el RMSE promedio para el modelo i
+  rmse_modelos[i] <- mean(rmse_fold)
+}
+
+# Imprimir los RMSE para cada modelo
+for (i in 1:6) {
+  cat(paste("RMSE Modelo", i, ":", rmse_modelos[i]), "\n")
+}
+
+# Seleccionar el modelo con el RMSE más bajo
+mejor_modelo_fuera_de_la_muestra <- which.min(rmse_modelos)
+
+cat(paste("El mejor modelo fuera de la muestra es el Modelo", mejor_modelo_fuera_de_la_muestra), "\n")
+```
+
+```{r}
+#crear una nueva columna con las probabilidades de cada elemento segun el modelo 1
+data$probabilidad_predicha <- predict(modelo1 , newdata = data)
+```
+
+```{r}
+library(ggplot2)
+
+# Crear el gráfico de dispersión
+ggplot(data, aes(x = age, y = probabilidad_predicha)) +
+  geom_point() +  # Puntos para representar los datos
+  labs(x = "Edad", y = "Probabilidad de Reingreso") +  # Etiquetas de ejes
+  ggtitle("Probabilidad de Reingreso en función de la Edad")  # Título del gráfico
+```
+
+
